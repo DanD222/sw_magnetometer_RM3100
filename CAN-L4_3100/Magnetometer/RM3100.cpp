@@ -54,16 +54,26 @@
 #define RM3100_HSHAKE_REG     0x35
 #define RM3100_REVID_REG      0x36
 
+#if 1
+#define CCP0    0x90      // Cycle Count values
+#define CCP1    0x01
+#else
 #define CCP0    0xC8      // Cycle Count values
 #define CCP1    0x00
+#endif
+
 #define CCP0_DEFAULT 0xC8 // Default Cycle Count values (used as a whoami check)
 #define CCP1_DEFAULT 0x00
+
 #define GAIN_CC50 20.0f   // LSB/uT
 #define GAIN_CC100 38.0f
 #define GAIN_CC200 75.0f
 
+//#define TMRC    0x92    // Update rate 600Hz
+//#define TMRC    0x93    // Update rate 300Hz
 #define TMRC    0x94    // Update rate 150Hz
-#define CMM     0x79    // read 3 axes and set data ready if 3 axes are ready
+//#define TMRC    0x95    // Update rate 75Hz
+#define CMM     0x71    // read 3 axes and set data ready if 3 axes are ready
 
 extern SPI_HandleTypeDef hspi1;
 extern CAN_HandleTypeDef hcan1;
@@ -139,7 +149,7 @@ bool configure_RM3100(void)
 
 bool read_RM3100( hw_data * target)
 {
-    return read_register_set( RM3100_MX2_REG, sizeof(hw_data) + 1, (uint8_t *)target);
+    return read_register_set( RM3100_MX2_REG, sizeof(hw_data), (uint8_t *)target);
 }
 
 uint8_t handshake[2];
@@ -161,6 +171,15 @@ restart:
 	CAN_TxHeaderTypeDef Header = { 0x160, 0, 0, 0, 6, DISABLE};
 	uint32_t mbx;
 
+#ifdef TEST_HANDSHAKE
+	result = read_register_set( RM3100_HSHAKE_REG, 2, handshake);
+    if( not  result)
+    {
+    	++fail_count;
+    	goto restart;
+    }
+#endif
+
 	while( true)
 	{
 		result = configure_RM3100();
@@ -173,9 +192,9 @@ restart:
 
 	for( synchronous_timer t( 10); true; t.sync())
 	{
-		uint8_t status_register[2];
+//		start_time = getTime_usec_privileged();
 
-		start_time = getTime_usec_privileged();
+		uint8_t status_register[2];
 
 		result = read_register_set( RM3100_STATUS_REG, 2, status_register);
 	    if( not  result)
@@ -188,14 +207,17 @@ restart:
 	    {
 	    	++fail_count;
 	    	goto restart;
+	    	continue;
 	    }
 
-	    result = read_register_set( RM3100_HSHAKE_REG, 2, handshake);
-	    if( not  result)
-	    {
-	    	++fail_count;
-	    	goto restart;
-	    }
+#ifdef TEST_HANDSHAKE
+	result = read_register_set( RM3100_HSHAKE_REG, 2, handshake);
+    if( not  result)
+    {
+    	++fail_count;
+    	goto restart;
+    }
+#endif
 
 	    result = read_RM3100( &target);
 	    if( not  result)
@@ -204,14 +226,23 @@ restart:
 	    	goto restart;
 	    }
 
-	    measurement_result.magx = ((target.magx_2 << 24) | (target.magx_1 << 16) | (target.magx_0 << 8)) & 0xffff00;
-		measurement_result.magy = ((target.magy_2 << 24) | (target.magy_1 << 16) | (target.magy_0 << 8)) & 0xffff00;
-		measurement_result.magz = ((target.magz_2 << 24) | (target.magz_1 << 16) | (target.magz_0 << 8)) & 0xffff00;
+	    measurement_result.magx = ((target.magx_2 << 24) | (target.magx_1 << 16) | (target.magx_0 << 8)) >> 8;
+		measurement_result.magy = ((target.magy_2 << 24) | (target.magy_1 << 16) | (target.magy_0 << 8)) >> 8;
+		measurement_result.magz = ((target.magz_2 << 24) | (target.magz_1 << 16) | (target.magz_0 << 8)) >> 8;
 
 		// pack result into single 64 bit datum: 16 + 16 + 16 bits -> 6 bytes telegram length
-		packed_result = (measurement_result.magx >> 8) | ((uint64_t)(measurement_result.magy) << (16-8)) | ((uint64_t)(measurement_result.magz) << (2*16-8));
+		packed_result =
+				((uint64_t)(measurement_result.magx) |
+				((uint64_t)(measurement_result.magy) << 16) |
+				((uint64_t)(measurement_result.magz) << 32) );
 	    result = HAL_CAN_AddTxMessage( &hcan1, &Header, (uint8_t *)&packed_result, &mbx);
-	    time_consumed = getTime_usec_privileged() - start_time;
+	    if( not  result)
+	    {
+	    	++fail_count;
+	    	goto restart;
+	    }
+
+//	    time_consumed = getTime_usec_privileged() - start_time;
 	}
 }
 
