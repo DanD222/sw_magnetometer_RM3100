@@ -232,10 +232,11 @@ restart:
 
 		// pack result into single 64 bit datum: 16 + 16 + 16 bits -> 6 bytes telegram length
 		packed_result =
-				((uint64_t)(measurement_result.magx) |
-				((uint64_t)(measurement_result.magy) << 16) |
-				((uint64_t)(measurement_result.magz) << 32) );
-	    result = HAL_CAN_AddTxMessage( &hcan1, &Header, (uint8_t *)&packed_result, &mbx);
+				(((uint64_t)(measurement_result.magx) & 0xffff) |
+				(((uint64_t)(measurement_result.magy) & 0xffff) << 16) |
+				(((uint64_t)(measurement_result.magz) & 0xffff) << 32) );
+
+		result = HAL_CAN_AddTxMessage( &hcan1, &Header, (uint8_t *)&packed_result, &mbx);
 	    if( not  result)
 	    {
 	    	++fail_count;
