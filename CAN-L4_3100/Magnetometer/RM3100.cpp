@@ -168,7 +168,7 @@ restart:
 	uint64_t start_time;
 
 	volatile HAL_StatusTypeDef stat = HAL_CAN_Start(&hcan1);
-	CAN_TxHeaderTypeDef Header = { 0x160, 0, 0, 0, 6, DISABLE};
+	CAN_TxHeaderTypeDef Header = { 0x070, 0, 0, 0, 6, DISABLE};
 	uint32_t mbx;
 
 #ifdef TEST_HANDSHAKE
