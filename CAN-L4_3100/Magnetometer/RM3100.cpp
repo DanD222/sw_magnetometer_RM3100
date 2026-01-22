@@ -26,6 +26,9 @@
 #include "RM3100.hpp"
 #include "stm32l4xx_hal.h"
 
+#define USE_CONTINUOUS_MODE		0
+#define MEASURE_DAQ_TIME		0
+
 #define RM3100_POLL_REG        0x00
 
 #define RM3100_CMM_REG         0x01
@@ -111,6 +114,7 @@ bool read_register_set( uint8_t _register, unsigned count, uint8_t * target)
 }
 
 ROM uint8_t INIT_DATA[] = { RM3100_CMM_REG, CMM, RM3100_MX2_REG, CCP1, CCP0, CCP1, CCP0, CCP1, CCP0, RM3100_TMRC_REG, TMRC};
+ROM uint8_t TRIGGER_TRIPLE_MEASUREMENT[] = { RM3100_POLL_REG, 0x70};
 
 bool configure_RM3100(void)
 {
@@ -135,10 +139,12 @@ bool configure_RM3100(void)
 	result = HAL_SPI_Transmit( &hspi1, INIT_DATA+9, 2, 1000);
 	SPI1_select( false);
 	delay(1);
+#if USE_CONTINUOUS_MODE
 	SPI1_select( true);
 	result = HAL_SPI_Transmit( &hspi1, INIT_DATA, 2, 1000);
 	SPI1_select( false);
 	delay(1);
+#endif
 	SPI1_select( true);
 	result = HAL_SPI_Transmit( &hspi1, INIT_DATA+2, 7, 1000);
 	SPI1_select( false);
@@ -157,7 +163,10 @@ mag_data measurement_result;
 unsigned fail_count;
 hw_data target;
 uint64_t packed_result;
+
+#if MEASURE_DAQ_TIME
 uint64_t time_consumed;
+#endif
 
 extern "C" void RM3100_runnable( void *)
 {
@@ -192,9 +201,13 @@ restart:
 
 	for( synchronous_timer t( 10); true; t.sync())
 	{
-//		start_time = getTime_usec_privileged();
+#if MEASURE_DAQ_TIME
+		start_time = getTime_usec_privileged();
+#endif
 
 		uint8_t status_register[2];
+
+#if USE_CONTINUOUS_MODE
 
 		result = read_register_set( RM3100_STATUS_REG, 2, status_register);
 	    if( not  result)
@@ -207,7 +220,6 @@ restart:
 	    {
 	    	++fail_count;
 	    	goto restart;
-	    	continue;
 	    }
 
 #ifdef TEST_HANDSHAKE
@@ -217,6 +229,33 @@ restart:
     	++fail_count;
     	goto restart;
     }
+#endif
+
+#else
+		SPI1_select( true);
+		result = HAL_SPI_Transmit( &hspi1, TRIGGER_TRIPLE_MEASUREMENT, 2, 10);
+		SPI1_select( false);
+
+		if( result != HAL_OK)
+	    {
+	    	++fail_count;
+	    	goto restart;
+	    }
+
+		delay(8); // measurement takes 3 * 3ms
+		while( true)
+		{
+			result = read_register_set( RM3100_STATUS_REG, 2, status_register);
+			if( not  result)
+			{
+				++fail_count;
+				goto restart;
+			}
+			if( (status_register[1] & 0x80) != 0)
+				break;
+			delay(1); // wait one more tick and try again
+		}
+
 #endif
 
 	    result = read_RM3100( &target);
@@ -237,13 +276,15 @@ restart:
 				(((uint64_t)(measurement_result.magz) & 0xffff) << 32) );
 
 		result = HAL_CAN_AddTxMessage( &hcan1, &Header, (uint8_t *)&packed_result, &mbx);
-	    if( not  result)
+	    if( result != HAL_OK)
 	    {
 	    	++fail_count;
 	    	goto restart;
 	    }
 
-//	    time_consumed = getTime_usec_privileged() - start_time;
+#if MEASURE_DAQ_TIME
+	    time_consumed = getTime_usec_privileged() - start_time;
+#endif
 	}
 }
 
