@@ -26,7 +26,6 @@
 #include "RM3100.hpp"
 #include "stm32l4xx_hal.h"
 
-#define USE_CONTINUOUS_MODE		0
 #define MEASURE_DAQ_TIME		0
 
 #define RM3100_POLL_REG        0x00
@@ -123,7 +122,7 @@ bool configure_RM3100(void)
 	bool ok = read_register_set( RM3100_CCX1_REG, 7, regbuf);
 	if( not ok)
 		return false;
-#if 1 // do the test
+
 	if( not
 		(
 		(regbuf[1] == CCP1_DEFAULT) && (regbuf[2] == CCP0_DEFAULT) &&
@@ -132,19 +131,12 @@ bool configure_RM3100(void)
 		)
 		  )
 		return false;
-#endif
 
 	HAL_StatusTypeDef result;
 	SPI1_select( true);
 	result = HAL_SPI_Transmit( &hspi1, INIT_DATA+9, 2, 1000);
 	SPI1_select( false);
 	delay(1);
-#if USE_CONTINUOUS_MODE
-	SPI1_select( true);
-	result = HAL_SPI_Transmit( &hspi1, INIT_DATA, 2, 1000);
-	SPI1_select( false);
-	delay(1);
-#endif
 	SPI1_select( true);
 	result = HAL_SPI_Transmit( &hspi1, INIT_DATA+2, 7, 1000);
 	SPI1_select( false);
@@ -207,31 +199,6 @@ restart:
 
 		uint8_t status_register[2];
 
-#if USE_CONTINUOUS_MODE
-
-		result = read_register_set( RM3100_STATUS_REG, 2, status_register);
-	    if( not  result)
-	    {
-	    	++fail_count;
-	    	goto restart;
-	    }
-
-	    if( (status_register[1] & 0x80) == 0)
-	    {
-	    	++fail_count;
-	    	goto restart;
-	    }
-
-#ifdef TEST_HANDSHAKE
-	result = read_register_set( RM3100_HSHAKE_REG, 2, handshake);
-    if( not  result)
-    {
-    	++fail_count;
-    	goto restart;
-    }
-#endif
-
-#else
 		SPI1_select( true);
 		result = HAL_SPI_Transmit( &hspi1, TRIGGER_TRIPLE_MEASUREMENT, 2, 10);
 		SPI1_select( false);
@@ -255,8 +222,6 @@ restart:
 				break;
 			delay(1); // wait one more tick and try again
 		}
-
-#endif
 
 	    result = read_RM3100( &target);
 	    if( not  result)
